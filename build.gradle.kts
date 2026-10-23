@@ -6,28 +6,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
 }
 
-// JVM-target alignment for every Android module. Without this, AGP leaves the
-// Java compile target at 1.8 while the Kotlin plugin targets JVM 17 (from the
-// JDK running Gradle), and Kotlin's JVM-target validation fails the build
-// ("Inconsistent JVM-target compatibility detected ... compileDebugJavaWithJavac
-// (1.8) and compileDebugKotlin (17)") — first seen in CI run 39943156798 on
-// :tv-input, but every Android module had the same mismatch.
-//
-// v3 note (run 39943671700, same error): setting compileOptions from a root
-// afterEvaluate hook did NOT reach AGP's tasks. This version hooks the moment
-// the Android base plugin is applied (com.android.base fires for both
-// application and library modules), i.e. during module evaluation — strictly
-// before AGP reads compileOptions in its own afterEvaluate.
-subprojects {
-    plugins.withId("com.android.base") {
-        extensions.configure<com.android.build.api.dsl.CommonExtension<*, *, *, *, *, *>> {
-            compileOptions {
-                sourceCompatibility = JavaVersion.VERSION_17
-                targetCompatibility = JavaVersion.VERSION_17
-            }
-        }
-    }
-    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-        compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-    }
-}
+// JVM-target alignment lives in each Android module's own build file
+// (compileOptions 17 + Kotlin jvmTarget 17). Two root-level attempts failed in
+// CI for hook-timing reasons: afterEvaluate was too late (run 39943671700),
+// and a plugins.withId callback ran before AGP registered its extension
+// (run 39944168638). Per-module settings are evaluated with the module, which
+// is the timing AGP itself expects.
