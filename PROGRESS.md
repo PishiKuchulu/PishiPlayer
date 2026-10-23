@@ -103,8 +103,16 @@ the mpv route.
 - **Verification (sandbox):** all 10 modules type-check — player-mpv
   against the real AAR classes.jar, the app with the embeddable-compiler +
   Compose-plugin pair (recipe in the 2026-10-23 log) — and the JVM suite is
-  **54/54 PASS**. CI + device verification for this tree are the remaining
-  proofs; the device checklist lives in DOCS/SOFTWARE_ENGINE.md.
+  **54/54 PASS**.
+- **Verification (CI): GREEN.** Run 39951854126 on commit c759c5b — all steps
+  success (tests, assembleDebug with ABI splits, lint, artifact upload;
+  `universalplayer-debug-apk` bundle 125,261,192 B). One CI-caught fix on the
+  way: run 39951112761 failed because libmpv was `implementation`-scoped in
+  player-mpv while its `EventObserver` is the engine's public supertype —
+  the sandbox type-check had the AAR classes on the app classpath and so
+  could not see the scoping error; the scope is now `api` and the sandbox
+  script documents the correspondence. Device verification remains open;
+  the checklist lives in DOCS/SOFTWARE_ENGINE.md.
 
 ## CI verification — first full AGP build GREEN (2026-10-23)
 
