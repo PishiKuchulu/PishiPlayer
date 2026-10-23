@@ -1,4 +1,4 @@
-# Delivery status — 0.4.1
+# Delivery status — 0.5.0
 
 Verification performed in the build sandbox for this release. The sandbox cannot run
 Gradle (its daemon dies immediately — a documented environment limit, reproduced
@@ -13,15 +13,32 @@ inspection is not compilation and compilation is not device testing.
 | Check | Result | Evidence |
 |---|---|---|
 | JVM modules compile (player-api, subtitle-core, playback-storage, tv-input) | PASS | Kotlin 2.0.21 compiler, exit 0 |
-| JVM unit tests — 45 tests | PASS | JUnit 4.13.2 run: `OK (45 tests)`. Suites: SeekPolicy (2), SubtitleDecoder (5), SubtitleParser (5, incl. the fixed ASS fixture), SubtitleText (3), SubtitleCorpus (9), SubtitleMarkup (10, added in 0.4.1), Bookmark (1), FileBookmarkStore (4), RemoteActionMapper (6) |
+| JVM unit tests — 54 tests | PASS | JUnit 4.13.2 run: `OK (54 tests)`. Suites: SeekPolicy (2), EngineFallbackPolicy (9, added in 0.5.0), SubtitleDecoder (5), SubtitleParser (5, incl. the fixed ASS fixture), SubtitleText (3), SubtitleCorpus (9), SubtitleMarkup (10, added in 0.4.1), Bookmark (1), FileBookmarkStore (4), RemoteActionMapper (6) |
 | device-capabilities compiles | PASS | Compiled against the official API 35 android.jar after the CodecCapabilities fix |
 | player-android compiles | PASS | Compiled against real published Media3 1.6.1 artifacts |
+| player-mpv compiles (new in 0.5.0) | PASS | Compiled against the API 35 android.jar and the real `dev.jdtech.mpv:libmpv:0.4.1` AAR classes.jar (downloaded from Maven Central, API surface verified with javap before use) |
 | subtitle-android, player-ui-android compile | PASS | Compiled against real published artifacts |
 | app-android compiles (with Compose compiler plugin) | PASS | Kotlin embeddable compiler 2.0.21 + Compose plugin 2.0.21, real Compose 1.7.8 / Material3 1.3.1 / activity-compose 1.10.1 artifacts, API 35 android.jar. One benign warning (@OptIn on UnstableApi, pre-existing pattern) |
 | Gradle wrapper present and genuine | PASS (files) | gradle-wrapper.jar extracted byte-for-byte from the official Gradle 8.11.1 distribution; gradlew/gradlew.bat from the official gradle/gradle v8.11.1 tag; properties already pinned 8.11.1 |
 | `./gradlew` execution in sandbox | BLOCKED | Sandbox-only: wrapper download blocked by broken Java HTTPS through the egress proxy; Gradle daemon dies in this environment. CI runs the wrapper on a normal runner |
-| Full AGP build (`assembleDebug`), lint | PASS (CI) | GitHub Actions run 39945170242 on commit 93ab973 (2026-10-23): every step green — SDK install, JVM-module tests, tv-input unit tests, assembleDebug, lint. Artifacts: `universalplayer-debug-apk` (11,688,354 B) and `lint-report` (39,098 B). Still not run in this sandbox (Gradle cannot execute here) |
-| Physical-device playback / TV remote / Persian glyph rendering | NOT TESTED | No device available in this environment |
+| Full AGP build (`assembleDebug`), lint | PASS (CI) for 0.4.1 | GitHub Actions run 39945170242 on commit 93ab973 (2026-10-23): every step green — SDK install, JVM-module tests, tv-input unit tests, assembleDebug, lint. Artifacts: `universalplayer-debug-apk` (11,688,354 B) and `lint-report` (39,098 B). The 0.5.0 tree gets its own CI run after push; this row is updated with that run's number when it lands |
+| Physical-device playback / TV remote / Persian glyph rendering | NOT TESTED | No device available in this environment. The software engine adds its own open checklist (DOCS/SOFTWARE_ENGINE.md): content:// via fdclose, surface timing on engine switch, 1080p HEVC/AV1 software smoothness on A53-class TVs |
+
+## What changed in 0.5.0 (summary; details in CHANGELOG.md and DOCS/SOFTWARE_ENGINE.md)
+
+- Software engine added (`:player-mpv`, libmpv 0.4.1 = mpv 0.39.0 + FFmpeg 7.1 +
+  dav1d): forced software decoding for files the hardware cannot decode — the
+  Android TV use case Farzad set for the project. Routing policy is pure and
+  unit-tested (9 tests); the app falls back once per file on decoder-class
+  errors, resuming at the reached position, and offers Auto/Hardware/Software
+  in an Engine dialog.
+- minSdk raised 23 → 26 (libmpv AAR floor); ABI splits enabled.
+- Licensing: the bundled FFmpeg is GPLv3 — binary distribution obligations
+  recorded in DOCS/THIRD_PARTY_LICENSES.md.
+- Sandbox verification: all 10 modules type-check (player-mpv against the
+  real AAR classes.jar; the app with the embeddable compiler + Compose plugin
+  pair), 54/54 JVM tests pass. AGP build verification for this tree rests on
+  CI, as before; device verification is still outstanding.
 
 ## What changed in 0.4.0 (summary; details in CHANGELOG.md and PROGRESS.md)
 
