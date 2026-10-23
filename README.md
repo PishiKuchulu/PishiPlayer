@@ -1,14 +1,15 @@
-# Universal Player — 0.4.1
+# Universal Player — 0.5.0
 
 Independent modular Android / Android TV local media player. This release turns the
 0.3.0 foundation into a wired-up player (0.4.1 adds SRT/VTT markup cleanup — see
 CHANGELOG.md). Every module in the build is used by the app,
 the subtitle core is integrated into the real playback path, and TV remote routing is
-centralized. It is **not** a finished universal-codec player: playback still relies on
-the device's platform decoders through Media3, FFmpeg is not integrated, and no
-physical-device playback verification has been performed yet. See `BUILD_STATUS.md`
-for the exact PASS / FAIL / BLOCKED / NOT TESTED breakdown and `PROGRESS.md` for the
-stage-by-stage record.
+centralized. Since 0.5.0 the player has **two engines**: Media3 on the device's
+hardware decoders, and a software engine (mpv/FFmpeg) for files the hardware
+cannot decode — the case that matters on older TVs without hardware support for
+modern codecs. No physical-device playback verification has been performed yet.
+See `BUILD_STATUS.md` for the exact PASS / FAIL / BLOCKED / NOT TESTED breakdown
+and `PROGRESS.md` for the stage-by-stage record.
 
 ## Modules (all wired into the app)
 
@@ -17,6 +18,12 @@ stage-by-stage record.
 - `player-api`: platform-neutral playback contracts and media models.
 - `player-android`: Media3 adapter — decoder fallback enabled, error state, decoder
   name / decode-path reporting, track enumeration and selection (including subtitles-off).
+- `player-mpv`: software engine — mpv + FFmpeg via `dev.jdtech.mpv:libmpv` (GPLv3
+  native bundle, see `DOCS/SOFTWARE_ENGINE.md`), forced software decoding
+  (`hwdec=no`), track enumeration/selection, `content://` via file descriptor.
+- `player-api` also hosts the engine routing policy (`EngineFallbackPolicy`):
+  Auto starts on hardware and falls back to software once per file on
+  decoder-class errors only.
 - `subtitle-core`: BOM-aware subtitle byte decoding, explicit charset override,
   Persian-first Windows-1256 fallback for non-UTF-8 bytes, SRT/WebVTT/ASS/SSA parsing.
   Pure JVM, fully unit-tested.
@@ -43,7 +50,7 @@ A GitHub Actions workflow (`.github/workflows/android-ci.yml`) runs the same tas
 Kotlin/API facts in this tree were additionally verified by compiling every module
 against the official API 35 `android.jar` and the real published dependency artifacts
 (Media3 1.6.1, Compose 1.7.8, …) with the Kotlin 2.0.21 compiler and the Compose
-compiler plugin; all 35 JVM unit tests pass. The full AGP build itself is verified
+compiler plugin; all 54 JVM unit tests pass. The full AGP build itself is verified
 by CI, not by that type-check — see `BUILD_STATUS.md`.
 
 ## Current playback capabilities
@@ -59,7 +66,13 @@ by CI, not by that type-check — see `BUILD_STATUS.md`.
   persisted settings: font family/size, text color, bold, background opacity,
   subtitle delay, enable/disable, reset. Changing the encoding re-decodes the
   already-loaded file immediately.
-- Embedded subtitle tracks render through Media3's built-in subtitle view.
+- Embedded subtitle tracks render through Media3's built-in subtitle view (on the
+  hardware engine) or by mpv itself (on the software engine).
+- Two playback engines, switchable in the **Engine** dialog: Auto (hardware
+  first, one automatic retry on the software engine when the hardware decoder
+  fails, resuming at the same position), Hardware only, or Software only. The
+  software engine (FFmpeg) decodes modern codecs — HEVC, AV1 (dav1d), VP9 —
+  in software for TVs without hardware decoders.
 - The status line and Device dialog report the active video/audio decoder names,
   the inferred decode path (hardware/software), and the full device decoder inventory.
 - Resume: playback position is saved per file; reopening a file offers a resume prompt.
@@ -69,8 +82,12 @@ by CI, not by that type-check — see `BUILD_STATUS.md`.
 
 ## Important limits
 
-- **FFmpeg is not integrated.** Software decoding beyond the platform's own software
-  decoders does not exist yet; see `DOCS/FFMPEG_DECISION.md`.
+- **Software decoding has real limits.** It runs in-process (a native crash
+  takes the player with it), costs CPU/battery, and 4K or Main10 software
+  decoding is not realistic on older TV chips — 1080p is the honest target.
+  The software engine raises the app's minimum to Android 8.0 (API 26).
+  Bundled FFmpeg is GPLv3 — see `DOCS/SOFTWARE_ENGINE.md` before distributing
+  binaries.
 - Hardware decoder inventory is a capability hint only. Actual playback depends on
   codec profile/level, bit depth, resolution, frame rate, HDR, firmware, and thermals.
 - The external-subtitle overlay renders one cue at a time with platform text shaping
@@ -97,8 +114,10 @@ and malformed subtitle bytes surface as errors instead of crashes.
 
 ## Next milestones
 
-1. Run the CI workflow (first full AGP build + lint) and fix anything it surfaces.
-2. Physical-device matrix: older Android TV + modern TV + phone; codec/subtitle corpus.
-3. On-device Persian/Arabic glyph verification for the overlay renderer.
-4. FFmpeg/software-decoding decision (see `DOCS/FFMPEG_DECISION.md`).
-5. Richer ASS rendering evaluation (per-cue positioning) behind the rendering plan.
+1. Physical-device matrix: older Android TV + modern TV + phone; codec/subtitle
+   corpus — including the software-engine checklist in `DOCS/SOFTWARE_ENGINE.md`
+   (content:// playback, surface timing on engine switch, 1080p HEVC/AV1
+   smoothness on Cortex-A53-class TVs).
+2. On-device Persian/Arabic glyph verification for the overlay renderer.
+3. Richer ASS rendering evaluation (per-cue positioning) behind the rendering plan.
+4. Revisit libmpv 1.0.0 when the project moves to compileSdk 36.
