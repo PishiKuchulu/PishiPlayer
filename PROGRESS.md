@@ -75,6 +75,24 @@ source alone. Status labels: PASS (executed), FAIL (executed, failed), BLOCKED
   unknown entities untouched. ASS path untouched.
 - Full suite re-run: 45/45 PASS. Docs/version bumped to 0.4.1 (versionCode 3).
 
+## CI verification — first full AGP build GREEN (2026-10-23)
+
+The source was pushed to github.com/PishiKuchulu/PishiPlayer (public). The road to
+a green run took 12 runs; every failure was infrastructure/build-config, none was
+application code:
+
+- Runs 1–2: `android-actions/setup-android` step failed; then bare `sdkmanager`
+  was not on PATH (`command not found`, log-verified). Fixed by calling
+  `$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager` directly.
+- Runs 3–5: `:tv-input:compileDebugKotlin` — "Inconsistent JVM-target
+  compatibility (javac 1.8 vs Kotlin 17)". Two root-level fixes failed on hook
+  timing (afterEvaluate too late; plugins.withId too early — the latter broke
+  plugin application entirely). Final fix (v5): `compileOptions` 17 +
+  Kotlin `jvmTarget` 17 inside each Android module's own build file.
+- **Run 12 (39945170242, commit 93ab973): SUCCESS — all steps green**, including
+  `:tv-input:testDebugUnitTest` and `:app-android:assembleDebug`. Artifacts:
+  `universalplayer-debug-apk` (11,688,354 B), `lint-report` (39,098 B).
+
 ## Next steps for whoever continues
 
 1. Push to GitHub, watch `android-ci.yml` (first true AGP build + lint), fix fallout.
