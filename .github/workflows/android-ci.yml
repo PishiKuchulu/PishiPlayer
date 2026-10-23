@@ -19,11 +19,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # No setup-android action: the ubuntu-latest runner image already ships an
+      # Android SDK (ANDROID_HOME) with sdkmanager on PATH. The action step failed
+      # in run 39935393625 (6s, before any project code ran); using the
+      # preinstalled SDK removes that failure point.
       - name: Install SDK Platform 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Unit tests (pure JVM modules)
         run: ./gradlew :player-api:test :subtitle-core:test :playback-storage:test --stacktrace
