@@ -7,5 +7,8 @@ android { namespace = "dev.pishi.player.mpv"; compileSdk = 35; defaultConfig { m
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach { compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
 dependencies {
     implementation(project(":player-api"))
-    implementation("dev.jdtech.mpv:libmpv:0.4.1")
+    // api, not implementation: MpvPlaybackEngine's public supertype is
+    // MPVLib.EventObserver, so consumers of this module need libmpv on their
+    // compile classpath (CI run 39951112761 failed on exactly this).
+    api("dev.jdtech.mpv:libmpv:0.4.1")
 }
