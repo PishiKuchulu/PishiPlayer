@@ -3,6 +3,8 @@ package dev.pishi.player.app
 import android.app.Activity
 import android.net.Uri
 import android.os.Bundle
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.View
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.ComponentActivity
@@ -37,6 +39,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import dev.pishi.player.android.Media3PlaybackEngine
 import dev.pishi.player.api.*
+import dev.pishi.player.mpv.MpvPlaybackEngine
 import dev.pishi.player.capabilities.DecoderCapability
 import dev.pishi.player.capabilities.DecoderCapabilityScanner
 import dev.pishi.player.input.RemoteAction
@@ -69,12 +72,33 @@ private data class LoadedSubtitle(
     val format: SubtitleParser.Format,
 )
 
+/** A prepare request consumed once the (possibly just-switched) engine is ready. */
+private data class PendingPrepare(
+    val source: MediaSource,
+    val autoplay: Boolean,
+    val startPositionMs: Long = 0L,
+)
+
 @OptIn(UnstableApi::class)
 @Composable
 private fun UniversalPlayerScreen() {
     val context = LocalContext.current
     val activity = context as? Activity
-    val engine = remember { Media3PlaybackEngine(context) }
+    val engineSettingsStore = remember { EngineSettingsStore(context) }
+    var enginePreference by remember { mutableStateOf(engineSettingsStore.load()) }
+    var engineKind by remember { mutableStateOf(EngineFallbackPolicy.initialKind(enginePreference)) }
+    // The active engine. Switching engineKind disposes the old engine through
+    // DisposableEffect(engine) below (bookmark save + release) and registers
+    // the listener on the new one.
+    val engine: PlaybackEngine = remember(engineKind) {
+        when (engineKind) {
+            EngineKind.MEDIA3 -> Media3PlaybackEngine(context)
+            EngineKind.MPV -> MpvPlaybackEngine(context)
+        }
+    }
+    var currentSource by remember { mutableStateOf<MediaSource?>(null) }
+    var engineSwitchedForFile by remember { mutableStateOf(false) }
+    var pendingPrepare by remember { mutableStateOf<PendingPrepare?>(null) }
     val keyMapper = remember { RemoteActionMapper() }
     val bookmarkStore = remember { FileBookmarkStore(File(context.filesDir, "bookmarks.tsv")) }
     val subtitleSettingsStore = remember { SubtitleSettingsStore(context) }
@@ -88,6 +112,7 @@ private fun UniversalPlayerScreen() {
     var showSpeed by remember { mutableStateOf(false) }
     var showSubtitleSettings by remember { mutableStateOf(false) }
     var showDiagnostics by remember { mutableStateOf(false) }
+    var showEngineSettings by remember { mutableStateOf(false) }
     var seekDraft by remember { mutableFloatStateOf(0f) }
     var isSeeking by remember { mutableStateOf(false) }
     var subtitleSettings by remember { mutableStateOf(subtitleSettingsStore.load()) }
@@ -106,6 +131,28 @@ private fun UniversalPlayerScreen() {
             is RemoteAction.Seek -> engine.seekBy(action.deltaMs)
             RemoteAction.Menu -> showTracks = !showTracks
             else -> Unit // Up/Down/Left/Right/Confirm/Back are focus-system or BackHandler concerns.
+        }
+    }
+
+    fun applyEnginePreference(next: EnginePreference) {
+        enginePreference = next
+        engineSettingsStore.save(next)
+        showEngineSettings = false
+        // AUTO never yanks the current engine mid-file (it may be a working
+        // fallback); explicit Hardware/Software choices re-route immediately,
+        // resuming the current source at the current position.
+        val target = when (next) {
+            EnginePreference.SOFTWARE -> EngineKind.MPV
+            EnginePreference.HARDWARE -> EngineKind.MEDIA3
+            EnginePreference.AUTO -> engineKind
+        }
+        val source = currentSource
+        if (source != null && target != engineKind) {
+            val resumePos = engine.snapshot().positionMs
+            val wasPlaying = snapshot.isPlaying
+            engineSwitchedForFile = false
+            pendingPrepare = PendingPrepare(source, autoplay = wasPlaying, startPositionMs = resumePos)
+            engineKind = target
         }
     }
 
@@ -142,7 +189,22 @@ private fun UniversalPlayerScreen() {
         engine.setListener(object : PlaybackEngine.Listener {
             override fun onSnapshot(value: PlaybackSnapshot) { snapshot = value }
             override fun onTracksChanged(value: List<MediaTrack>) { tracks = value }
-            override fun onError(code: String, message: String, cause: Throwable?) { error = "$code: $message" }
+            override fun onError(code: String, message: String, cause: Throwable?) {
+                // Decoder-class failures on the hardware engine retry once on
+                // the software engine (mpv/FFmpeg), resuming at the position
+                // the hardware engine had reached. All other errors surface.
+                val fallback = EngineFallbackPolicy.fallbackKind(enginePreference, engineKind, code, engineSwitchedForFile)
+                val source = currentSource
+                if (fallback == EngineKind.MPV && source != null) {
+                    val resumePos = engine.snapshot().positionMs
+                    engineSwitchedForFile = true
+                    error = "Hardware decoding failed ($code) — switched to the software engine"
+                    pendingPrepare = PendingPrepare(source, autoplay = true, startPositionMs = resumePos)
+                    engineKind = EngineKind.MPV
+                } else {
+                    error = "$code: $message"
+                }
+            }
         })
         onDispose {
             // Persist the resume point for the currently loaded media.
@@ -155,6 +217,17 @@ private fun UniversalPlayerScreen() {
             }
             engine.setListener(null)
             engine.release()
+        }
+    }
+
+    // Consume a queued prepare once the target engine exists (fresh open,
+    // engine-preference switch, or decoder-failure fallback).
+    LaunchedEffect(engine, pendingPrepare) {
+        val pending = pendingPrepare
+        if (pending != null) {
+            pendingPrepare = null
+            engine.prepare(pending.source, pending.startPositionMs)
+            if (pending.autoplay) engine.play()
         }
     }
 
@@ -182,6 +255,7 @@ private fun UniversalPlayerScreen() {
 
     BackHandler {
         when {
+            showEngineSettings -> showEngineSettings = false
             showDiagnostics -> showDiagnostics = false
             showSubtitleSettings -> showSubtitleSettings = false
             showSpeed -> showSpeed = false
@@ -251,13 +325,14 @@ private fun UniversalPlayerScreen() {
             val bookmarkDuration = bookmark?.durationMs
             val resumable = bookmark != null && bookmark.positionMs > 5_000 &&
                 (bookmarkDuration == null || bookmark.positionMs < bookmarkDuration - 5_000)
-            engine.prepare(MediaSource(URI(uri.toString()), mimeType = context.contentResolver.getType(uri), title = title))
-            if (resumable) {
-                pendingResume = bookmark
-            } else {
-                pendingResume = null
-                engine.play()
-            }
+            val source = MediaSource(URI(uri.toString()), mimeType = context.contentResolver.getType(uri), title = title)
+            currentSource = source
+            engineSwitchedForFile = false
+            // Route the new file per the stored preference; the prepare itself
+            // is consumed once the right engine is active (see LaunchedEffect).
+            engineKind = EngineFallbackPolicy.initialKind(enginePreference)
+            pendingPrepare = PendingPrepare(source, autoplay = !resumable)
+            pendingResume = if (resumable) bookmark else null
         }
     }
 
@@ -317,6 +392,8 @@ private fun UniversalPlayerScreen() {
                 OutlinedButton(onClick = { showSpeed = true }, enabled = selectedUri != null) { Text("${trimSpeed(controlState.snapshot.speed)}×") }
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = { showDiagnostics = true }) { Text("Device") }
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton(onClick = { showEngineSettings = true }) { Text("Engine") }
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -345,23 +422,37 @@ private fun UniversalPlayerScreen() {
                             Text("Remote: OK on the video = play/pause · ←/→ = seek · Menu = tracks", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                         }
                     } else {
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
-                            factory = { viewContext -> PlayerView(viewContext).apply {
-                                player = engine.nativePlayer
-                                useController = false
-                                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
-                                setKeepContentOnPlayerReset(true)
-                            } },
-                            update = {
-                                it.player = engine.nativePlayer
-                                // Media3 renders embedded tracks itself. External files are
-                                // rendered by the subtitle-core overlay, so hide Media3's
-                                // subtitle view while an external subtitle is loaded.
-                                it.subtitleView?.visibility = if (loadedSubtitle != null) View.GONE else View.VISIBLE
-                            },
-                        )
+                        when (val activeEngine = engine) {
+                            is Media3PlaybackEngine -> AndroidView(
+                                modifier = Modifier.fillMaxSize(),
+                                factory = { viewContext -> PlayerView(viewContext).apply {
+                                    player = activeEngine.nativePlayer
+                                    useController = false
+                                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+                                    setKeepContentOnPlayerReset(true)
+                                } },
+                                update = {
+                                    it.player = activeEngine.nativePlayer
+                                    // Media3 renders embedded tracks itself. External files are
+                                    // rendered by the subtitle-core overlay, so hide Media3's
+                                    // subtitle view while an external subtitle is loaded.
+                                    it.subtitleView?.visibility = if (loadedSubtitle != null) View.GONE else View.VISIBLE
+                                },
+                            )
+                            is MpvPlaybackEngine -> AndroidView(
+                                modifier = Modifier.fillMaxSize(),
+                                factory = { viewContext ->
+                                    SurfaceView(viewContext).apply {
+                                        holder.addCallback(object : SurfaceHolder.Callback {
+                                            override fun surfaceCreated(holder: SurfaceHolder) { activeEngine.attachSurface(holder.surface) }
+                                            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+                                            override fun surfaceDestroyed(holder: SurfaceHolder) { activeEngine.detachSurface() }
+                                        })
+                                    }
+                                },
+                            )
+                        }
                         if (overlayCue != null) {
                             SubtitleOverlayCue(
                                 text = overlayCue.text,
@@ -428,7 +519,7 @@ private fun UniversalPlayerScreen() {
                 OutlinedButton(onClick = { engine.seekBy(30_000) }, enabled = selectedUri != null) { Text("+30s") }
                 Spacer(Modifier.width(16.dp))
                 Text(
-                    "${controlState.snapshot.state} · ${trimSpeed(controlState.snapshot.speed)}× · ${controlState.snapshot.decodePath}" +
+                    "${controlState.snapshot.state} · ${trimSpeed(controlState.snapshot.speed)}× · ${controlState.snapshot.decodePath} · ${if (engineKind == EngineKind.MPV) "mpv" else "Media3"}" +
                         (controlState.snapshot.videoDecoderName?.let { " · $it" } ?: ""),
                     color = Color.LightGray, style = MaterialTheme.typography.labelMedium,
                 )
@@ -468,6 +559,42 @@ private fun UniversalPlayerScreen() {
             },
             confirmButton = {},
             dismissButton = { TextButton(onClick = { showSpeed = false }) { Text("Close") } },
+        )
+    }
+
+    if (showEngineSettings) {
+        AlertDialog(
+            onDismissRequest = { showEngineSettings = false },
+            title = { Text("Playback engine") },
+            text = {
+                Column {
+                    Text(
+                        "Active: ${if (engineKind == EngineKind.MPV) "Software (mpv / FFmpeg)" else "Hardware (Media3)"}",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    EnginePreference.entries.forEach { pref ->
+                        TextButton(
+                            onClick = { applyEnginePreference(pref) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                "${if (pref == enginePreference) "✓ " else ""}${when (pref) {
+                                    EnginePreference.AUTO -> "Auto — hardware first, software on decoder failure"
+                                    EnginePreference.HARDWARE -> "Hardware only (Media3)"
+                                    EnginePreference.SOFTWARE -> "Software only (mpv / FFmpeg)"
+                                }}",
+                            )
+                        }
+                    }
+                    Text(
+                        "Software decoding plays modern codecs (HEVC, AV1, VP9) on TVs without hardware decoders, at higher CPU cost. 4K software decoding is not realistic on older TV chips.",
+                        style = MaterialTheme.typography.labelSmall, color = Color(0xFFB0BEC5),
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showEngineSettings = false }) { Text("Close") } },
         )
     }
 
