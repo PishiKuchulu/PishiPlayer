@@ -1,12 +1,11 @@
-# FFmpeg integration decision — pending
+# FFmpeg integration decision — RESOLVED (2026-10-23)
 
-Do not claim FFmpeg support until an actual native decoder pipeline is integrated and tested. Before selecting a distribution, decide:
+Resolved in favor of a libmpv-based software engine; see
+`DOCS/SOFTWARE_ENGINE.md` for the full decision record (artifact, versions,
+licensing, ABI/size strategy, routing, and the open device-verification
+checklist).
 
-- ABI targets and minimum Android API.
-- Exact FFmpeg version, enabled/disabled components and reproducible build source.
-- LGPL/GPL configuration and distribution obligations; include notices/source offer as applicable.
-- APK/AAB size budget, split APK/ABI strategy and update/security policy.
-- Whether software decoding runs in-process, how native crashes are isolated, and which formats are in scope.
-- Whether transcoding is local, external-server based, or out of scope.
-
-Software decoding of 4K AV1/HEVC Main10 on old TV hardware may be too slow regardless of library choice. Capability probing and fallback must not promise impossible performance.
+The standing caution from the original pending note still applies and is
+repeated in the decision record: software decoding of 4K AV1/HEVC Main10 on
+old TV hardware may be too slow regardless of library choice — capability
+reporting and fallback must never promise impossible performance.
