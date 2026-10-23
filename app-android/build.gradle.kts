@@ -3,7 +3,9 @@ android {
     namespace = "dev.pishi.player.app"; compileSdk = 35
     defaultConfig { applicationId = "dev.pishi.player"; minSdk = 23; targetSdk = 35; versionCode = 3; versionName = "0.4.1" }
     buildFeatures { compose = true }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach { compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
 dependencies {
     implementation(project(":player-api")); implementation(project(":player-android")); implementation(project(":subtitle-core")); implementation(project(":subtitle-android")); implementation(project(":device-capabilities")); implementation(project(":tv-input")); implementation(project(":playback-storage")); implementation(project(":player-ui-android"))
     implementation("androidx.core:core-ktx:1.15.0")
