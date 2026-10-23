@@ -12,9 +12,15 @@ plugins {
 // ("Inconsistent JVM-target compatibility detected ... compileDebugJavaWithJavac
 // (1.8) and compileDebugKotlin (17)") — first seen in CI run 39943156798 on
 // :tv-input, but every Android module had the same mismatch.
+//
+// v3 note (run 39943671700, same error): setting compileOptions from a root
+// afterEvaluate hook did NOT reach AGP's tasks. This version hooks the moment
+// the Android base plugin is applied (com.android.base fires for both
+// application and library modules), i.e. during module evaluation — strictly
+// before AGP reads compileOptions in its own afterEvaluate.
 subprojects {
-    afterEvaluate {
-        extensions.findByType<com.android.build.api.dsl.CommonExtension<*, *, *, *, *, *>>()?.apply {
+    plugins.withId("com.android.base") {
+        extensions.configure<com.android.build.api.dsl.CommonExtension<*, *, *, *, *, *>> {
             compileOptions {
                 sourceCompatibility = JavaVersion.VERSION_17
                 targetCompatibility = JavaVersion.VERSION_17
