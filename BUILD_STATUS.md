@@ -20,7 +20,7 @@ inspection is not compilation and compilation is not device testing.
 | app-android compiles (with Compose compiler plugin) | PASS | Kotlin embeddable compiler 2.0.21 + Compose plugin 2.0.21, real Compose 1.7.8 / Material3 1.3.1 / activity-compose 1.10.1 artifacts, API 35 android.jar. One benign warning (@OptIn on UnstableApi, pre-existing pattern) |
 | Gradle wrapper present and genuine | PASS (files) | gradle-wrapper.jar extracted byte-for-byte from the official Gradle 8.11.1 distribution; gradlew/gradlew.bat from the official gradle/gradle v8.11.1 tag; properties already pinned 8.11.1 |
 | `./gradlew` execution in sandbox | BLOCKED | Sandbox-only: wrapper download blocked by broken Java HTTPS through the egress proxy; Gradle daemon dies in this environment. CI runs the wrapper on a normal runner |
-| Full AGP build (`assembleDebug`), lint | NOT RUN HERE | Delegated to `.github/workflows/android-ci.yml`; resource linking, manifest merging, and dexing are only verified there |
+| Full AGP build (`assembleDebug`), lint | PASS (CI) | GitHub Actions run 39945170242 on commit 93ab973 (2026-10-23): every step green — SDK install, JVM-module tests, tv-input unit tests, assembleDebug, lint. Artifacts: `universalplayer-debug-apk` (11,688,354 B) and `lint-report` (39,098 B). Still not run in this sandbox (Gradle cannot execute here) |
 | Physical-device playback / TV remote / Persian glyph rendering | NOT TESTED | No device available in this environment |
 
 ## What changed in 0.4.0 (summary; details in CHANGELOG.md and PROGRESS.md)
