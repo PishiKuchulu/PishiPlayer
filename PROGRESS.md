@@ -75,6 +75,37 @@ source alone. Status labels: PASS (executed), FAIL (executed, failed), BLOCKED
   unknown entities untouched. ASS path untouched.
 - Full suite re-run: 45/45 PASS. Docs/version bumped to 0.4.1 (versionCode 3).
 
+## 0.5.0 — software engine (mpv) as engine #2 (2026-10-23)
+
+Farzad clarified the project's purpose: this player is **for Android TV**, and
+its core job is playing modern-codec files on TVs that have **no hardware
+decoder** for them. The FFmpeg question (pending since 0.3.0) was therefore
+promoted from "future decision" to the main roadmap item, and Farzad chose
+the mpv route.
+
+- **Artifact research (verified by download):** `dev.jdtech.mpv:libmpv` on
+  Maven Central (Findroid's library). 1.0.0 needs compileSdk 36 → pinned
+  **0.4.1** (mpv 0.39.0, FFmpeg 7.1, dav1d 1.4.3; AAR 44,177,434 B; arm64
+  natives 22.0 MiB, armeabi-v7a 19.8 MiB; API surface read with javap).
+  Its manifest floor forced **minSdk 23 → 26**. Bundled FFmpeg is GPLv3 —
+  recorded in the license inventory.
+- **Routing first (pure, tested):** `EngineFallbackPolicy` in player-api +
+  9 unit tests — Auto starts on Media3; decoder-class errors (only) fall
+  back once per file to mpv, resuming at the reached position.
+- **`:player-mpv`:** `MpvPlaybackEngine` over the static MPVLib API —
+  `hwdec=no` (a genuinely different decode path), refcounted native core
+  (MPVLib is process-global; engine instances overlap briefly during
+  Compose switches), `content://` via `fdclose://`, tracks from
+  `track-list/*` properties, END_FILE-without-load → `MPV_LOAD_FAILED`.
+- **App wiring:** engine state + preference store + Engine dialog,
+  SurfaceView for mpv (PlayerView stays for Media3), pending-prepare
+  hand-off across engine switches, ABI splits + universal APK.
+- **Verification (sandbox):** all 10 modules type-check — player-mpv
+  against the real AAR classes.jar, the app with the embeddable-compiler +
+  Compose-plugin pair (recipe in the 2026-10-23 log) — and the JVM suite is
+  **54/54 PASS**. CI + device verification for this tree are the remaining
+  proofs; the device checklist lives in DOCS/SOFTWARE_ENGINE.md.
+
 ## CI verification — first full AGP build GREEN (2026-10-23)
 
 The source was pushed to github.com/PishiKuchulu/PishiPlayer (public). The road to
