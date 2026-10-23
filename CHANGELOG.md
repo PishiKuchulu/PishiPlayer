@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.5.0 — 2026-10-23
+
+Software decoding: a second playback engine (mpv/FFmpeg) for TVs whose hardware
+lacks a decoder for a file's codec — the project's core Android TV use case.
+
+### Added
+
+- New module `:player-mpv`: `MpvPlaybackEngine` on `dev.jdtech.mpv:libmpv`
+  0.4.1 (mpv 0.39.0, FFmpeg 7.1, dav1d 1.4.3). Software decoding is forced
+  (`hwdec=no`) so the fallback path never retries the MediaCodec path that
+  already failed. Full PlaybackEngine surface: prepare/play/pause/seek/speed,
+  track enumeration and selection (incl. subtitles-off), snapshots with
+  `DecodePath.SOFTWARE` and FFmpeg codec names. The mpv core is reference
+  counted (its API is a process-global static) so engine switches cannot
+  destroy the core under the incoming engine.
+- `content://` sources reach FFmpeg as an OS file descriptor (`fdclose://`);
+  `file://` and `http(s)://` play directly.
+- Engine routing in player-api: `EngineKind`, `EnginePreference`,
+  `EngineFallbackPolicy` (pure, 9 unit tests). Auto (default): Media3 first;
+  a decoder-class error retries the same source **once** on the software
+  engine, resuming at the reached position. I/O and parser errors never fall
+  back. Hardware = never fall back; Software = always mpv.
+- App: Engine dialog (Auto / Hardware / Software, persisted), active engine in
+  the status line, SurfaceView for the software engine (PlayerView remains
+  for Media3), explicit preference changes re-route the current file at the
+  current position.
+
+### Changed
+
+- **minSdk 23 → 26** (the libmpv AAR's manifest floor).
+- ABI splits enabled (arm64-v8a, armeabi-v7a, x86_64) + universal APK, so the
+  ~20–24 MiB of native libraries per ABI are not carried by every download.
+
+### Licensing
+
+- The libmpv wrapper is MIT, but its bundled FFmpeg is a GPLv3 build
+  (`--enable-gpl --enable-version3`) and mpv is GPLv2+: distributed binaries
+  that include the software engine carry GPLv3 obligations. Full record:
+  `DOCS/SOFTWARE_ENGINE.md`, `DOCS/THIRD_PARTY_LICENSES.md`.
+
+### Notes
+
+- Software decoding is in-process and CPU-bound; 1080p HEVC/VP9/AV1 is the
+  realistic target on older TV SoCs — 4K/Main10 software decoding is not
+  promised. Device verification (incl. `fdclose://` on real SAF picks and
+  surface timing on fallback switches) is outstanding; see the checklist in
+  `DOCS/SOFTWARE_ENGINE.md`.
+
 ## 0.4.1 — 2026-10-23
 
 Subtitle markup polish in subtitle-core (test-first: 7 of the 10 new tests failed
