@@ -19,14 +19,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # No setup-android action: the ubuntu-latest runner image already ships an
-      # Android SDK (ANDROID_HOME) with sdkmanager on PATH. The action step failed
-      # in run 39935393625 (6s, before any project code ran); using the
-      # preinstalled SDK removes that failure point.
+      # No setup-android action (it failed in run 39935393625 before any project
+      # code ran) and no bare `sdkmanager` either: it is not on PATH in the run
+      # shell (run 39942916036, step failed in <1s). Call it by full path under
+      # ANDROID_HOME, which the runner image always sets.
       - name: Install SDK Platform 35
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Unit tests (pure JVM modules)
         run: ./gradlew :player-api:test :subtitle-core:test :playback-storage:test --stacktrace
